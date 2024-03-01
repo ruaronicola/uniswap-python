@@ -61,6 +61,7 @@ from .util import (
     realised_fee_percentage,
 )
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,6 +93,7 @@ class Uniswap:
         factory_contract_addr: Optional[str] = None,
         router_contract_addr: Optional[str] = None,
         enable_caching: bool = False,
+        block_identifier: Optional[Union[str, int]] = None,
     ) -> None:
         """
         :param address: The public address of the ETH wallet to use.
@@ -103,6 +105,7 @@ class Uniswap:
         :param factory_contract_addr: Can be optionally set to override the address of the factory contract.
         :param router_contract_addr: Can be optionally set to override the address of the router contract (v2 only).
         :param enable_caching: Optionally enables middleware caching RPC method calls.
+        :param block_identifier: Optionally set the block identifier for the contract calls.
         """
         self.address = _str_to_addr(
             address or "0x0000000000000000000000000000000000000000"
@@ -117,6 +120,8 @@ class Uniswap:
             raise Exception(
                 f"Invalid version '{self.version}', only 1, 2 or 3 supported"
             )  # pragma: no cover
+        
+        self.block_identifier = block_identifier
 
         # TODO: Write tests for slippage
         self.default_slippage = default_slippage
@@ -271,11 +276,11 @@ class Uniswap:
         """Public price (i.e. amount of output token received) for ETH to token trades with an exact input."""
         if self.version == 1:
             ex = self._exchange_contract(token)
-            price: Wei = ex.functions.getEthToTokenInputPrice(qty).call()
+            price: Wei = ex.functions.getEthToTokenInputPrice(qty).call(block_identifier=self.block_identifier)
         elif self.version == 2:
             price = self.router.functions.getAmountsOut(
                 qty, [self.get_weth_address(), token]
-            ).call()[-1]
+            ).call(block_identifier=self.block_identifier)[-1]
         elif self.version == 3:
             price = self._get_token_token_input_price(
                 self.get_weth_address(), token, qty, fee=fee
@@ -293,11 +298,11 @@ class Uniswap:
         """Public price (i.e. amount of ETH received) for token to ETH trades with an exact input."""
         if self.version == 1:
             ex = self._exchange_contract(token)
-            price: int = ex.functions.getTokenToEthInputPrice(qty).call()
+            price: int = ex.functions.getTokenToEthInputPrice(qty).call(block_identifier=self.block_identifier)
         elif self.version == 2:
             price = self.router.functions.getAmountsOut(
                 qty, [token, self.get_weth_address()]
-            ).call()[-1]
+            ).call(block_identifier=self.block_identifier)[-1]
         elif self.version == 3:
             price = self._get_token_token_input_price(
                 token, self.get_weth_address(), qty, fee=fee
@@ -332,18 +337,18 @@ class Uniswap:
                 logger.warning(f"No route specified, assuming route: {route}")
 
         if self.version == 2:
-            price: int = self.router.functions.getAmountsOut(qty, route).call()[-1]
+            price: int = self.router.functions.getAmountsOut(qty, route).call(block_identifier=self.block_identifier)[-1]
         elif self.version == 3:
             if route:
                 # NOTE: to support custom routes we need to support the Path data encoding: https://github.com/Uniswap/uniswap-v3-periphery/blob/main/contracts/libraries/Path.sol
-                # result: tuple = self.quoter.functions.quoteExactInput(route, qty).call()
+                # result: tuple = self.quoter.functions.quoteExactInput(route, qty).call(block_identifier=self.block_identifier)
                 raise Exception("custom route not yet supported for v3")
 
             # FIXME: How to calculate this properly? See https://docs.uniswap.org/reference/libraries/SqrtPriceMath
             sqrtPriceLimitX96 = 0
             price = self.quoter.functions.quoteExactInputSingle(
                 token0, token1, fee, qty, sqrtPriceLimitX96
-            ).call()
+            ).call(block_identifier=self.block_identifier)
         else:
             raise ValueError("function not supported for this version of Uniswap")
         return price
@@ -358,10 +363,10 @@ class Uniswap:
         fee = validate_fee_tier(fee=fee, version=self.version)
         if self.version == 1:
             ex = self._exchange_contract(token)
-            price: Wei = ex.functions.getEthToTokenOutputPrice(qty).call()
+            price: Wei = ex.functions.getEthToTokenOutputPrice(qty).call(block_identifier=self.block_identifier)
         elif self.version == 2:
             route = [self.get_weth_address(), token]
-            price = self.router.functions.getAmountsIn(qty, route).call()[0]
+            price = self.router.functions.getAmountsIn(qty, route).call(block_identifier=self.block_identifier)[0]
         elif self.version == 3:
             price = Wei(
                 self._get_token_token_output_price(
@@ -379,10 +384,10 @@ class Uniswap:
         fee = validate_fee_tier(fee=fee, version=self.version)
         if self.version == 1:
             ex = self._exchange_contract(token)
-            price: int = ex.functions.getTokenToEthOutputPrice(qty).call()
+            price: int = ex.functions.getTokenToEthOutputPrice(qty).call(block_identifier=self.block_identifier)
         elif self.version == 2:
             route = [token, self.get_weth_address()]
-            price = self.router.functions.getAmountsIn(qty, route).call()[0]
+            price = self.router.functions.getAmountsIn(qty, route).call(block_identifier=self.block_identifier)[0]
         elif self.version == 3:
             price = self._get_token_token_output_price(
                 token, self.get_weth_address(), qty, fee=fee
@@ -419,11 +424,11 @@ class Uniswap:
                 logger.warning(f"No route specified, assuming route: {route}")
 
         if self.version == 2:
-            price: int = self.router.functions.getAmountsIn(qty, route).call()[0]
+            price: int = self.router.functions.getAmountsIn(qty, route).call(block_identifier=self.block_identifier)[0]
         elif self.version == 3:
             if route:
                 # NOTE: to support custom routes we need to support the Path data encoding: https://github.com/Uniswap/uniswap-v3-periphery/blob/main/contracts/libraries/Path.sol
-                # result: tuple = self.quoter.functions.quoteExactOutput(route, qty).call()
+                # result: tuple = self.quoter.functions.quoteExactOutput(route, qty).call(block_identifier=self.block_identifier)
                 raise Exception("custom route not yet supported for v3")
 
             # FIXME: How to calculate this properly?
@@ -432,7 +437,7 @@ class Uniswap:
             sqrtPriceLimitX96 = 0
             price = self.quoter.functions.quoteExactOutputSingle(
                 token0, token1, fee, qty, sqrtPriceLimitX96
-            ).call()
+            ).call(block_identifier=self.block_identifier)
         else:
             raise ValueError  # pragma: no cover
         return price
@@ -1048,7 +1053,7 @@ class Uniswap:
         if _addr_to_str(token) == ETH_ADDRESS:
             return self.get_eth_balance()
         erc20 = _load_contract_erc20(self.w3, token)
-        balance: int = erc20.functions.balanceOf(self.address).call()
+        balance: int = erc20.functions.balanceOf(self.address).call(block_identifier=self.block_identifier)
         return balance
 
     # ------ ERC20 Pool ----------------------------------------------------------------
@@ -1064,7 +1069,7 @@ class Uniswap:
         erc20 = _load_contract_erc20(self.w3, token)
         balance: int = erc20.functions.balanceOf(
             self._exchange_address_from_token(token)
-        ).call()
+        ).call(block_identifier=self.block_identifier)
         return balance
 
     # TODO: ADD TOTAL SUPPLY
@@ -1114,8 +1119,8 @@ class Uniswap:
         add liquidity to pool and mint position nft
         """
 
-        token_0 = pool.functions.token0().call()
-        token_1 = pool.functions.token1().call()
+        token_0 = pool.functions.token0().call(block_identifier=self.block_identifier)
+        token_1 = pool.functions.token1().call(block_identifier=self.block_identifier)
         token_0_instance = _load_contract(self.w3, abi_name="erc20", address=token_0)
         token_1_instance = _load_contract(self.w3, abi_name="erc20", address=token_1)
 
@@ -1125,12 +1130,12 @@ class Uniswap:
         assert balance_0 > amount_0, f"Have {balance_0}, need {amount_0}: {token_0}"
         assert balance_1 > amount_1, f"Have {balance_1}, need {amount_1}: {token_1}"
 
-        fee = pool.functions.fee().call()
+        fee = pool.functions.fee().call(block_identifier=self.block_identifier)
         tick_lower = nearest_tick(tick_lower, fee)
         tick_upper = nearest_tick(tick_upper, fee)
         assert tick_lower < tick_upper, "Invalid tick range"
 
-        *_, isInit = pool.functions.slot0().call()
+        *_, isInit = pool.functions.slot0().call(block_identifier=self.block_identifier)
         # If pool is not initialized, init pool w/ sqrt_price_x96 encoded from amount_0 & amount_1
         if isInit is False:
             sqrt_pricex96 = encode_sqrt_ratioX96(amount_0, amount_1)
@@ -1177,7 +1182,7 @@ class Uniswap:
         """
         remove all liquidity from the position associated w/ tokenId, collect fees, and burn token.
         """
-        position = self.nonFungiblePositionManager.functions.positions(tokenId).call()
+        position = self.nonFungiblePositionManager.functions.positions(tokenId).call(block_identifier=self.block_identifier)
 
         if deadline is None:
             deadline = self._deadline()
@@ -1188,7 +1193,7 @@ class Uniswap:
         if position[2] == WETH9_ADDRESS or position[3] == WETH9_ADDRESS:
             amount0Min, amount1Min = self.nonFungiblePositionManager.functions.collect(
                 (tokenId, _addr_to_str(self.address), MAX_UINT_128, MAX_UINT_128)
-            ).call()
+            ).call(block_identifier=self.block_identifier)
 
         tx_remove_liquidity = (
             self.nonFungiblePositionManager.functions.decreaseLiquidity(
@@ -1279,7 +1284,7 @@ class Uniswap:
         # If searching for the maximum tick, we must then add-back len(bitmap)*tick_spacing as each bit in the bitmap should correspond to a tick.
 
         for wordPos in range(min_wordPos, max_wordPos, step):
-            word = pool.functions.tickBitmap(wordPos).call()
+            word = pool.functions.tickBitmap(wordPos).call(block_identifier=self.block_identifier)
             bitmap = bin(word)
             for bit in bitmap[3:]:
                 if int(bit) == 1:
@@ -1376,12 +1381,12 @@ class Uniswap:
         token0_decimals = (
             _load_contract_erc20(self.w3, pool_immutables["token0"])
             .functions.decimals()
-            .call()
+            .call(block_identifier=self.block_identifier)
         )
         token1_decimals = (
             _load_contract_erc20(self.w3, pool_immutables["token1"])
             .functions.decimals()
-            .call()
+            .call(block_identifier=self.block_identifier)
         )
         token0_liquidity = token0_liquidity // (10**token0_decimals)
         token1_liquidity = token1_liquidity // (10**token1_decimals)
@@ -1416,7 +1421,7 @@ class Uniswap:
         amount = (
             _load_contract_erc20(self.w3, token)
             .functions.allowance(self.address, contract_addr)
-            .call()
+            .call(block_identifier=self.block_identifier)
         )
         if amount >= self.max_approval_check_int:
             return True
@@ -1563,9 +1568,7 @@ class Uniswap:
             {"target": target, "callData": callData}
             for target, callData in encoded_functions
         ]
-        _, results = self.multicall2.functions.aggregate(params).call(
-            block_identifier="latest"
-        )
+        _, results = self.multicall2.functions.aggregate(params).call(block_identifier=self.block_identifier)
         decoded_results = [
             self.w3.codec.decode(output_types, multicall_result)
             for multicall_result in results
@@ -1593,9 +1596,9 @@ class Uniswap:
             )
         token_contract = _load_contract(self.w3, abi_name, address=address)
         try:
-            _name = token_contract.functions.name().call()
-            _symbol = token_contract.functions.symbol().call()
-            decimals = token_contract.functions.decimals().call()
+            _name = token_contract.functions.name().call(block_identifier=self.block_identifier)
+            _symbol = token_contract.functions.symbol().call(block_identifier=self.block_identifier)
+            decimals = token_contract.functions.decimals().call(block_identifier=self.block_identifier)
         except Exception as e:
             logger.warning(
                 f"Exception occurred while trying to get token {_addr_to_str(address)}: {e}"
@@ -1617,9 +1620,9 @@ class Uniswap:
         """Retrieves the WETH address from the contracts (which may vary between chains)."""
         if self.version == 2:
             # Contract calls should always return checksummed addresses
-            address: ChecksumAddress = self.router.functions.WETH().call()
+            address: ChecksumAddress = self.router.functions.WETH().call(block_identifier=self.block_identifier)
         elif self.version == 3:
-            address = self.router.functions.WETH9().call()
+            address = self.router.functions.WETH9().call(block_identifier=self.block_identifier)
         else:
             raise ValueError  # pragma: no cover
 
@@ -1644,7 +1647,7 @@ class Uniswap:
 
         pool_address = self.factory_contract.functions.getPool(
             token_0, token_1, fee
-        ).call()
+        ).call(block_identifier=self.block_identifier)
         assert pool_address != ETH_ADDRESS, "0 address returned. Pool does not exist"
         pool_instance = _load_contract(
             self.w3, abi_name="uniswap-v3/pool", address=pool_address
@@ -1682,12 +1685,12 @@ class Uniswap:
         Fetch on-chain pool data.
         """
         pool_immutables = {
-            "factory": pool.functions.factory().call(),
-            "token0": pool.functions.token0().call(),
-            "token1": pool.functions.token1().call(),
-            "fee": pool.functions.fee().call(),
-            "tickSpacing": pool.functions.tickSpacing().call(),
-            "maxLiquidityPerTick": pool.functions.maxLiquidityPerTick().call(),
+            "factory": pool.functions.factory().call(block_identifier=self.block_identifier),
+            "token0": pool.functions.token0().call(block_identifier=self.block_identifier),
+            "token1": pool.functions.token1().call(block_identifier=self.block_identifier),
+            "fee": pool.functions.fee().call(block_identifier=self.block_identifier),
+            "tickSpacing": pool.functions.tickSpacing().call(block_identifier=self.block_identifier),
+            "maxLiquidityPerTick": pool.functions.maxLiquidityPerTick().call(block_identifier=self.block_identifier),
         }
 
         return pool_immutables
@@ -1697,8 +1700,8 @@ class Uniswap:
         """
         Fetch on-chain pool state.
         """
-        liquidity = pool.functions.liquidity().call()
-        slot = pool.functions.slot0().call()
+        liquidity = pool.functions.liquidity().call(block_identifier=self.block_identifier)
+        slot = pool.functions.slot0().call(block_identifier=self.block_identifier)
         pool_state = {
             "liquidity": liquidity,
             "sqrtPriceX96": slot[0],
@@ -1721,13 +1724,13 @@ class Uniswap:
         positions: List[int] = []
         number_of_positions = self.nonFungiblePositionManager.functions.balanceOf(
             _addr_to_str(self.address)
-        ).call()
+        ).call(block_identifier=self.block_identifier)
         if number_of_positions > 0:
             for idx in range(number_of_positions):
                 position = (
                     self.nonFungiblePositionManager.functions.tokenOfOwnerByIndex(
                         _addr_to_str(self.address), idx
-                    ).call()
+                    ).call(block_identifier=self.block_identifier)
                 )
                 positions.append(position)
         return positions
@@ -1822,14 +1825,14 @@ class Uniswap:
                 self.w3.to_checksum_address(token_in),
                 self.w3.to_checksum_address(token_out),
             ]
-            pair_token = self.factory_contract.functions.getPair(*params).call()
+            pair_token = self.factory_contract.functions.getPair(*params).call(block_identifier=self.block_identifier)
             token_in_erc20 = _load_contract_erc20(
                 self.w3, self.w3.to_checksum_address(token_in)
             )
             token_in_balance = int(
                 token_in_erc20.functions.balanceOf(
                     self.w3.to_checksum_address(pair_token)
-                ).call()
+                ).call(block_identifier=self.block_identifier)
             )
             token_in_decimals = self.get_token(token_in).decimals
             token_in_balance = token_in_balance / (10**token_in_decimals)
@@ -1840,7 +1843,7 @@ class Uniswap:
             token_out_balance = int(
                 token_out_erc20.functions.balanceOf(
                     self.w3.to_checksum_address(pair_token)
-                ).call()
+                ).call(block_identifier=self.block_identifier)
             )
             token_out_decimals = self.get_token(token_out).decimals
             token_out_balance = token_out_balance / (10**token_out_decimals)
@@ -1852,19 +1855,19 @@ class Uniswap:
                 self.w3.to_checksum_address(token_out),
                 fee,
             ]
-            pool_address = self.factory_contract.functions.getPool(*params).call()
+            pool_address = self.factory_contract.functions.getPool(*params).call(block_identifier=self.block_identifier)
             pool_contract = _load_contract(
                 self.w3, abi_name="uniswap-v3/pool", address=pool_address
             )
-            # t0 = pool_contract.functions.token0().call()
-            t1 = pool_contract.functions.token1().call()
+            # t0 = pool_contract.functions.token0().call(block_identifier=self.block_identifier)
+            t1 = pool_contract.functions.token1().call(block_identifier=self.block_identifier)
             if t1.lower() == token_in.lower():
                 den0 = self.get_token(token_in).decimals
                 den1 = self.get_token(token_out).decimals
             else:
                 den0 = self.get_token(token_out).decimals
                 den1 = self.get_token(token_in).decimals
-            sqrtPriceX96 = pool_contract.functions.slot0().call()[0]
+            sqrtPriceX96 = pool_contract.functions.slot0().call(block_identifier=self.block_identifier)[0]
             raw_price = (sqrtPriceX96 * sqrtPriceX96 * 10**den1 >> (96 * 2)) / (
                 10**den0
             )
@@ -1939,7 +1942,7 @@ class Uniswap:
     def _exchange_address_from_token(self, token_addr: AddressLike) -> AddressLike:
         ex_addr: AddressLike = self.factory_contract.functions.getExchange(
             token_addr
-        ).call()
+        ).call(block_identifier=self.block_identifier)
         # TODO: What happens if the token doesn't have an exchange/doesn't exist?
         #       Should probably raise an Exception (and test it)
         return ex_addr
@@ -1949,7 +1952,7 @@ class Uniswap:
         token_addr: Address = (
             self._exchange_contract(ex_addr=exchange_addr)
             .functions.tokenAddress(exchange_addr)
-            .call()
+            .call(block_identifier=self.block_identifier)
         )
         return token_addr
 
@@ -1977,10 +1980,10 @@ class Uniswap:
         Note: This is a *very* expensive operation and might therefore not work properly.
         """
         # FIXME: This is a very expensive operation, would benefit greatly from caching.
-        tokenCount = self.factory_contract.functions.tokenCount().call()
+        tokenCount = self.factory_contract.functions.tokenCount().call(block_identifier=self.block_identifier)
         tokens = []
         for i in range(tokenCount):
-            address = self.factory_contract.functions.getTokenWithId(i).call()
+            address = self.factory_contract.functions.getTokenWithId(i).call(block_identifier=self.block_identifier)
             if address == "0x0000000000000000000000000000000000000000":
                 # Token is ETH
                 continue
